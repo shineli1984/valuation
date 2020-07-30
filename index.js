@@ -111,7 +111,7 @@ const calcuate = ticker =>
     const yr5Pe = growth * 100 * pegRatio;
     const yr5EstimatePrice = yr5Eps * yr5Pe;
 
-    return [ticker, eps < 0 ? "NEG_EPS" : "", yr5EstimatePrice.toFixed(2), getBaseLog(4, yr5EstimatePrice / close).toFixed(2) * 100];
+    return [ticker, eps < 0 ? "NEG_EPS" : "", yr5EstimatePrice.toFixed(2), getBaseLog(5, yr5EstimatePrice / close).toFixed(2) * 100];
   })
   .catch(e => console.error(e));
 
