@@ -1,13 +1,12 @@
 import 'isomorphic-fetch';
 import r from 'ramda';
-const {path} = r;
+const {compose, dissoc, path, values} = r;
 import {appendFile} from 'fs';
 
 const tickers = [
   "APPN",
   "ANET",
   "PTON",
-  "STAA",
   "NEE",
   "ASML",
   "TEAM",
@@ -100,18 +99,28 @@ const calcuate = ticker =>
 
     const summary = data.quoteSummary.result[0];
 
-    const pegRatio = path(["defaultKeyStatistics", "pegRatio", "raw"], summary);
-    const close = path(["price", "regularMarketPreviousClose", "raw"], summary);
-    const eps = path(["earningsTrend", "trend"], summary)?.find(t => t.period === "0y")?.epsTrend?.current?.raw;
-    const growth = path(["earningsTrend", "trend"], summary)?.find(t => t.period === "+5y")?.growth?.raw;
-
-    // console.log(pegRatio, close, eps, growth);
+    const pegRatio = summary.defaultKeyStatistics?.pegRatio?.raw;
+    const close = summary.price?.regularMarketPreviousClose?.raw;
+    const eps = summary.earningsTrend?.trend?.find(t => t.period === "0y")?.epsTrend?.current?.raw;
+    const growth = summary.earningsTrend?.trend?.find(t => t.period === "+5y")?.growth?.raw;
 
     const yr5Eps = eps * ((1 + growth) ** 5);
     const yr5Pe = growth * 100 * pegRatio;
     const yr5EstimatePrice = yr5Eps * yr5Pe;
+    const expectedReturnPerYear = 15/100;
+    const marginOfError = 0.5
+    const fairPriceToday = yr5EstimatePrice / ((1 + expectedReturnPerYear) ** 5);
 
-    return [ticker, eps < 0 ? "NEG_EPS" : "", yr5EstimatePrice.toFixed(2), getBaseLog(5, yr5EstimatePrice / close).toFixed(2) * 100];
+    return {
+      ticker,
+      close,
+      negEps: eps < 0,
+      yr5EstimatePrice: yr5EstimatePrice.toFixed(2),
+      yr5AnnualGrowth: (getBaseLog(5, yr5EstimatePrice / close) * 100).toFixed(2),
+      fairPriceToday,
+      belowFairPrice: fairPriceToday - close > 0,
+      belowFairPriceIncMarginOfError: fairPriceToday * (1 - marginOfError) - close > 0
+    }
   })
   .catch(e => console.error(e));
 
@@ -119,17 +128,23 @@ Promise
   .all(tickers.map(calcuate))
   .then(list =>
     list.filter(c => 
-      c[1] !== "NEG_EPS" // filter out NEG_EPS 
-      && c[2] !== `${NaN}` //  filter out NaN
-      // && parseFloat(c[3]) < 30 // filter yearly lower than 30%
-    )
+      !c.negEps // filter out NEG_EPS 
+      && c.yr5EstimatePrice !== `${NaN}` //  filter out NaN
+      // && parseFloat(c.yr5AnnualGrowth) < 30 // filter yearly lower than 30%
+    ).sort((a, b) => a.yr5AnnualGrowth - b.yr5AnnualGrowth)
   )
   .then(r => {
     return new Promise((resolve, reject) => {
-      appendFile('./scores.txt', `=============${new Date().toString()}=============\n` + r.join("\n") + "\n", function (err) {
-        resolve(r);
-        if (err) reject(err);
-        console.log(r)
-      });
+      appendFile(
+        './scores.txt', 
+        `=============${new Date().toString()}=============\n` 
+          + r.map(compose(values, dissoc("negEps"))).join("\n") 
+          + "\n", 
+        function (err) {
+          resolve(r);
+          if (err) reject(err);
+          console.log(r)
+        }
+      );
     });
   });
